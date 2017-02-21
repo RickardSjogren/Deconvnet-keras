@@ -175,7 +175,6 @@ class DPooling(object):
         """
         self.layer = layer
         self.poolsize = layer.pool_size
-        # self.poolsize = layer.poolsize
 
     def up(self, data, learning_phase=0):
         """
@@ -216,8 +215,8 @@ class DPooling(object):
         out_shape = list(input.shape)
         row_poolsize = int(poolsize[0])
         col_poolsize = int(poolsize[1])
-        out_shape[2] = out_shape[2] / poolsize[0]
-        out_shape[3] = out_shape[3] / poolsize[1]
+        out_shape[2] = out_shape[2] // poolsize[0]
+        out_shape[3] = out_shape[3] // poolsize[1]
         pooled = np.zeros(out_shape)
 
         for sample in range(input.shape[0]):
@@ -251,8 +250,8 @@ class DPooling(object):
         # Returns
             Unpooled result
         """
-        tile = np.ones((switch.shape[2] / input.shape[2],
-                        switch.shape[3] / input.shape[3]))
+        tile = np.ones((switch.shape[2] // input.shape[2],
+                        switch.shape[3] // input.shape[3]))
         out = np.kron(input, tile)
         unpooled = out * switch
         return unpooled
@@ -494,7 +493,11 @@ def argparser():
 
 
 def main():
-    from keras.applications import vgg16, imagenet_utils
+    sys.path.insert(0,
+                    r'C:\Users\risj0005\Documents\Kod\deep-learning-models-master')
+    import vgg16
+    import imagenet_utils
+    # from keras.applications import vgg16, imagenet_utils
     parser = argparser()
     args = parser.parse_args()
     image_path = args.image
@@ -504,7 +507,7 @@ def main():
 
     model = vgg16.VGG16(weights='imagenet', include_top=True)
     layer_dict = dict([(layer.name, layer) for layer in model.layers])
-    if not layer_dict.has_key(layer_name):
+    if not layer_name in layer_dict:
         print('Wrong layer name')
         sys.exit()
 
