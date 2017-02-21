@@ -14,7 +14,6 @@ import sys
 import keras.backend as K
 import numpy as np
 from PIL import Image
-from keras.applications import vgg16, imagenet_utils
 from keras.layers import (
     Input,
     InputLayer,
@@ -27,17 +26,17 @@ from keras.layers.convolutional import (
 
 
 class DConvolution2D(object):
-    '''
+    """
     A class to define forward and backward operation on Convolution2D
-    '''
+    """
 
     def __init__(self, layer):
-        '''
+        """
         # Arguments
             layer: an instance of Convolution2D layer, whose configuration 
                    will be used to initiate DConvolution2D(input_shape, 
                    output_shape, weights)
-        '''
+        """
         self.layer = layer
 
         weights = layer.get_weights()
@@ -77,42 +76,42 @@ class DConvolution2D(object):
         self.down_func = K.function([input, K.learning_phase()], output)
 
     def up(self, data, learning_phase=0):
-        '''
+        """
         function to compute Convolution output in forward pass
         # Arguments
             data: Data to be operated in forward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Convolved result
-        '''
+        """
         self.up_data = self.up_func([data, learning_phase])
         return self.up_data
 
     def down(self, data, learning_phase=0):
-        '''
+        """
         function to compute Deconvolution output in backward pass
         # Arguments
             data: Data to be operated in backward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Deconvolved result
-        '''
+        """
         self.down_data = self.down_func([data, learning_phase])
         return self.down_data
 
 
 class DDense(object):
-    '''
+    """
     A class to define forward and backward operation on Dense
-    '''
+    """
 
     def __init__(self, layer):
-        '''
+        """
         # Arguments
             layer: an instance of Dense layer, whose configuration 
                    will be used to initiate DDense(input_shape, 
                    output_shape, weights)
-        '''
+        """
         self.layer = layer
         weights = layer.get_weights()
         W = weights[0]
@@ -137,74 +136,74 @@ class DDense(object):
         self.down_func = K.function([input, K.learning_phase()], output)
 
     def up(self, data, learning_phase=0):
-        '''
+        """
         function to compute dense output in forward pass
         # Arguments
             data: Data to be operated in forward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Result of dense layer
-        '''
+        """
         self.up_data = self.up_func([data, learning_phase])
         return self.up_data
 
     def down(self, data, learning_phase=0):
-        '''
+        """
         function to compute dense output in backward pass
         # Arguments
             data: Data to be operated in forward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Result of reverse dense layer
-        '''
+        """
         # data = data - self.bias
         self.down_data = self.down_func([data, learning_phase])
         return self.down_data
 
 
 class DPooling(object):
-    '''
+    """
     A class to define forward and backward operation on Pooling
-    '''
+    """
 
     def __init__(self, layer):
-        '''
+        """
         # Arguments
             layer: an instance of Pooling layer, whose configuration 
                    will be used to initiate DPooling(input_shape, 
                    output_shape, weights)
-        '''
+        """
         self.layer = layer
         self.poolsize = layer.pool_size
         # self.poolsize = layer.poolsize
 
     def up(self, data, learning_phase=0):
-        '''
+        """
         function to compute pooling output in forward pass
         # Arguments
             data: Data to be operated in forward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Pooled result
-        '''
+        """
         [self.up_data, self.switch] = \
             self.__max_pooling_with_switch(data, self.poolsize)
         return self.up_data
 
     def down(self, data, learning_phase=0):
-        '''
+        """
         function to compute unpooling output in backward pass
         # Arguments
             data: Data to be operated in forward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Unpooled result
-        '''
+        """
         self.down_data = self.__max_unpooling_with_switch(data, self.switch)
         return self.down_data
 
     def __max_pooling_with_switch(self, input, poolsize):
-        '''
+        """
         Compute pooling output and switch in forward pass, switch stores 
         location of the maximum value in each poolsize * poolsize block
         # Arguments
@@ -212,7 +211,7 @@ class DPooling(object):
             poolsize: size of pooling operation
         # Returns
             Pooled result and Switch
-        '''
+        """
         switch = np.zeros(input.shape)
         out_shape = list(input.shape)
         row_poolsize = int(poolsize[0])
@@ -243,7 +242,7 @@ class DPooling(object):
 
     # Compute unpooled output using pooled data and switch
     def __max_unpooling_with_switch(self, input, switch):
-        '''
+        """
         Compute unpooled output using pooled data and switch
         # Arguments
             input: data to be pooled
@@ -251,7 +250,7 @@ class DPooling(object):
             switch: switch storing location of each elements
         # Returns
             Unpooled result
-        '''
+        """
         tile = np.ones((switch.shape[2] / input.shape[2],
                         switch.shape[3] / input.shape[3]))
         out = np.kron(input, tile)
@@ -260,17 +259,17 @@ class DPooling(object):
 
 
 class DActivation(object):
-    '''
+    """
     A class to define forward and backward operation on Activation
-    '''
+    """
 
     def __init__(self, layer, linear=False):
-        '''
+        """
         # Arguments
             layer: an instance of Activation layer, whose configuration 
                    will be used to initiate DActivation(input_shape, 
                    output_shape, weights)
-        '''
+        """
         self.layer = layer
         self.linear = linear
         self.activation = layer.activation
@@ -286,43 +285,43 @@ class DActivation(object):
 
     # Compute activation in forward pass
     def up(self, data, learning_phase=0):
-        '''
+        """
         function to compute activation in forward pass
         # Arguments
             data: Data to be operated in forward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Activation
-        '''
+        """
         self.up_data = self.up_func([data, learning_phase])
         return self.up_data
 
     # Compute activation in backward pass
     def down(self, data, learning_phase=0):
-        '''
+        """
         function to compute activation in backward pass
         # Arguments
             data: Data to be operated in backward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Activation
-        '''
+        """
         self.down_data = self.down_func([data, learning_phase])
         return self.down_data
 
 
 class DFlatten(object):
-    '''
+    """
     A class to define forward and backward operation on Flatten
-    '''
+    """
 
     def __init__(self, layer):
-        '''
+        """
         # Arguments
             layer: an instance of Flatten layer, whose configuration 
                    will be used to initiate DFlatten(input_shape, 
                    output_shape, weights)
-        '''
+        """
         self.layer = layer
         self.shape = layer.input_shape[1:]
         self.up_func = K.function(
@@ -330,27 +329,27 @@ class DFlatten(object):
 
     # Flatten 2D input into 1D output
     def up(self, data, learning_phase=0):
-        '''
+        """
         function to flatten input in forward pass
         # Arguments
             data: Data to be operated in forward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Flattened data
-        '''
+        """
         self.up_data = self.up_func([data, learning_phase])
         return self.up_data
 
     # Reshape 1D input into 2D output
     def down(self, data, learning_phase=0):
-        '''
+        """
         function to unflatten input in backward pass
         # Arguments
             data: Data to be operated in backward pass
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             Recovered data
-        '''
+        """
         new_shape = [data.shape[0]] + list(self.shape)
         assert np.prod(self.shape) == np.prod(data.shape[1:])
         self.down_data = np.reshape(data, new_shape)
@@ -358,22 +357,22 @@ class DFlatten(object):
 
 
 class DInput(object):
-    '''
+    """
     A class to define forward and backward operation on Input
-    '''
+    """
 
     def __init__(self, layer):
-        '''
+        """
         # Arguments
             layer: an instance of Input layer, whose configuration 
                    will be used to initiate DInput(input_shape, 
                    output_shape, weights)
-        '''
+        """
         self.layer = layer
 
     # input and output of Inputl layer are the same
     def up(self, data, learning_phase=0):
-        '''
+        """
         function to operate input in forward pass, the input and output
         are the same
         # Arguments
@@ -381,12 +380,12 @@ class DInput(object):
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             data
-        '''
+        """
         self.up_data = data
         return self.up_data
 
     def down(self, data, learning_phase=0):
-        '''
+        """
         function to operate input in backward pass, the input and output
         are the same
         # Arguments
@@ -394,13 +393,13 @@ class DInput(object):
             learning_phase: learning_phase of Keras, 1 or 0
         # Returns
             data
-        '''
+        """
         self.down_data = data
         return self.down_data
 
 
 def visualize(model, data, layer_name, feature_to_visualize, visualize_mode):
-    '''
+    """
     function to visualize feature
     # Arguments
         model: Pre-trained model used to visualize data
@@ -416,7 +415,7 @@ def visualize(model, data, layer_name, feature_to_visualize, visualize_mode):
                         'all' and 'max', for Dense layer, they are the same
     # Returns
         The image reflecting feature
-    '''
+    """
     deconv_layers = []
     # Stack layers
     for i in range(len(model.layers)):
@@ -495,6 +494,7 @@ def argparser():
 
 
 def main():
+    from keras.applications import vgg16, imagenet_utils
     parser = argparser()
     args = parser.parse_args()
     image_path = args.image
