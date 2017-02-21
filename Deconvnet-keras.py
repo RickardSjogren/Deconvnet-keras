@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-#coding=utf-8
+# coding=utf-8
 ###############################################
 # File Name: DeconvNet2D.py
 # Author: Liang Jiang
@@ -9,29 +9,28 @@
 ###############################################
 
 import argparse
-import numpy as np
 import sys
-import time
-from PIL import Image
-from keras.layers import (
-        Input,
-        InputLayer,
-        Flatten,
-        Activation,
-        Dense)
-from keras.layers.convolutional import (
-        Convolution2D,
-        MaxPooling2D)
-from keras.activations import *
-from keras.models import Model, Sequential
-from keras.applications import vgg16, imagenet_utils
+
 import keras.backend as K
+import numpy as np
+from PIL import Image
+from keras.applications import vgg16, imagenet_utils
+from keras.layers import (
+    Input,
+    InputLayer,
+    Flatten,
+    Activation,
+    Dense)
+from keras.layers.convolutional import (
+    Convolution2D,
+    MaxPooling2D)
 
 
 class DConvolution2D(object):
     '''
     A class to define forward and backward operation on Convolution2D
     '''
+
     def __init__(self, layer):
         '''
         # Arguments
@@ -49,14 +48,14 @@ class DConvolution2D(object):
         nb_up_filter = W.shape[0]
         nb_up_row = W.shape[2]
         nb_up_col = W.shape[3]
-        input = Input(shape = layer.input_shape[1:])
+        input = Input(shape=layer.input_shape[1:])
         output = Convolution2D(
-                nb_filter = nb_up_filter, 
-                nb_row = nb_up_row, 
-                nb_col = nb_up_col, 
-                border_mode = 'same',
-                weights = [W, b]
-                )(input)
+            nb_filter=nb_up_filter,
+            nb_row=nb_up_row,
+            nb_col=nb_up_col,
+            border_mode='same',
+            weights=[W, b]
+        )(input)
         self.up_func = K.function([input, K.learning_phase()], output)
 
         # Flip W horizontally and vertically, 
@@ -67,17 +66,17 @@ class DConvolution2D(object):
         nb_down_row = W.shape[2]
         nb_down_col = W.shape[3]
         b = np.zeros(nb_down_filter)
-        input = Input(shape = layer.output_shape[1:])
+        input = Input(shape=layer.output_shape[1:])
         output = Convolution2D(
-                nb_filter = nb_down_filter, 
-                nb_row = nb_down_row, 
-                nb_col = nb_down_col, 
-                border_mode = 'same',
-                weights = [W, b]
-                )(input)
+            nb_filter=nb_down_filter,
+            nb_row=nb_down_row,
+            nb_col=nb_down_col,
+            border_mode='same',
+            weights=[W, b]
+        )(input)
         self.down_func = K.function([input, K.learning_phase()], output)
 
-    def up(self, data, learning_phase = 0):
+    def up(self, data, learning_phase=0):
         '''
         function to compute Convolution output in forward pass
         # Arguments
@@ -89,7 +88,7 @@ class DConvolution2D(object):
         self.up_data = self.up_func([data, learning_phase])
         return self.up_data
 
-    def down(self, data, learning_phase = 0):
+    def down(self, data, learning_phase=0):
         '''
         function to compute Deconvolution output in backward pass
         # Arguments
@@ -98,14 +97,15 @@ class DConvolution2D(object):
         # Returns
             Deconvolved result
         '''
-        self.down_data= self.down_func([data, learning_phase])
+        self.down_data = self.down_func([data, learning_phase])
         return self.down_data
-    
+
 
 class DDense(object):
     '''
     A class to define forward and backward operation on Dense
     '''
+
     def __init__(self, layer):
         '''
         # Arguments
@@ -117,27 +117,26 @@ class DDense(object):
         weights = layer.get_weights()
         W = weights[0]
         b = weights[1]
-        
-        #Set up_func for DDense
-        input = Input(shape = layer.input_shape[1:])
-        output = Dense(output_dim = layer.output_shape[1],
-                weights = [W, b])(input)
+
+        # Set up_func for DDense
+        input = Input(shape=layer.input_shape[1:])
+        output = Dense(output_dim=layer.output_shape[1],
+                       weights=[W, b])(input)
         self.up_func = K.function([input, K.learning_phase()], output)
-        
-        #Transpose W and set down_func for DDense
+
+        # Transpose W and set down_func for DDense
         W = W.transpose()
         self.input_shape = layer.input_shape
         self.output_shape = layer.output_shape
         b = np.zeros(self.input_shape[1])
         flipped_weights = [W, b]
-        input = Input(shape = self.output_shape[1:])
+        input = Input(shape=self.output_shape[1:])
         output = Dense(
-                output_dim = self.input_shape[1], 
-                weights = flipped_weights)(input)
+            output_dim=self.input_shape[1],
+            weights=flipped_weights)(input)
         self.down_func = K.function([input, K.learning_phase()], output)
-    
 
-    def up(self, data, learning_phase = 0):
+    def up(self, data, learning_phase=0):
         '''
         function to compute dense output in forward pass
         # Arguments
@@ -148,8 +147,8 @@ class DDense(object):
         '''
         self.up_data = self.up_func([data, learning_phase])
         return self.up_data
-        
-    def down(self, data, learning_phase = 0):
+
+    def down(self, data, learning_phase=0):
         '''
         function to compute dense output in backward pass
         # Arguments
@@ -162,10 +161,12 @@ class DDense(object):
         self.down_data = self.down_func([data, learning_phase])
         return self.down_data
 
+
 class DPooling(object):
     '''
     A class to define forward and backward operation on Pooling
     '''
+
     def __init__(self, layer):
         '''
         # Arguments
@@ -176,8 +177,8 @@ class DPooling(object):
         self.layer = layer
         self.poolsize = layer.pool_size
         # self.poolsize = layer.poolsize
-    
-    def up(self, data, learning_phase = 0):
+
+    def up(self, data, learning_phase=0):
         '''
         function to compute pooling output in forward pass
         # Arguments
@@ -187,10 +188,10 @@ class DPooling(object):
             Pooled result
         '''
         [self.up_data, self.switch] = \
-                self.__max_pooling_with_switch(data, self.poolsize)
+            self.__max_pooling_with_switch(data, self.poolsize)
         return self.up_data
 
-    def down(self, data, learning_phase = 0):
+    def down(self, data, learning_phase=0):
         '''
         function to compute unpooling output in backward pass
         # Arguments
@@ -201,7 +202,7 @@ class DPooling(object):
         '''
         self.down_data = self.__max_unpooling_with_switch(data, self.switch)
         return self.down_data
-    
+
     def __max_pooling_with_switch(self, input, poolsize):
         '''
         Compute pooling output and switch in forward pass, switch stores 
@@ -219,27 +220,27 @@ class DPooling(object):
         out_shape[2] = out_shape[2] / poolsize[0]
         out_shape[3] = out_shape[3] / poolsize[1]
         pooled = np.zeros(out_shape)
-        
+
         for sample in range(input.shape[0]):
             for dim in range(input.shape[1]):
                 for row in range(out_shape[2]):
                     for col in range(out_shape[3]):
-                        patch = input[sample, 
-                                dim, 
-                                row * row_poolsize : (row + 1) * row_poolsize,
-                                col * col_poolsize : (col + 1) * col_poolsize]
+                        patch = input[sample,
+                                dim,
+                                row * row_poolsize: (row + 1) * row_poolsize,
+                                col * col_poolsize: (col + 1) * col_poolsize]
                         max_value = patch.max()
                         pooled[sample, dim, row, col] = max_value
-                        max_col_index = patch.argmax(axis = 1)
-                        max_cols = patch.max(axis = 1)
+                        max_col_index = patch.argmax(axis=1)
+                        max_cols = patch.max(axis=1)
                         max_row = max_cols.argmax()
                         max_col = max_col_index[max_row]
-                        switch[sample, 
-                                dim, 
-                                row * row_poolsize + max_row, 
-                                col * col_poolsize + max_col]  = 1
+                        switch[sample,
+                               dim,
+                               row * row_poolsize + max_row,
+                               col * col_poolsize + max_col] = 1
         return [pooled, switch]
-    
+
     # Compute unpooled output using pooled data and switch
     def __max_unpooling_with_switch(self, input, switch):
         '''
@@ -251,8 +252,8 @@ class DPooling(object):
         # Returns
             Unpooled result
         '''
-        tile = np.ones((switch.shape[2] / input.shape[2], 
-            switch.shape[3] / input.shape[3]))
+        tile = np.ones((switch.shape[2] / input.shape[2],
+                        switch.shape[3] / input.shape[3]))
         out = np.kron(input, tile)
         unpooled = out * switch
         return unpooled
@@ -262,7 +263,8 @@ class DActivation(object):
     '''
     A class to define forward and backward operation on Activation
     '''
-    def __init__(self, layer, linear = False):
+
+    def __init__(self, layer, linear=False):
         '''
         # Arguments
             layer: an instance of Activation layer, whose configuration 
@@ -272,18 +274,18 @@ class DActivation(object):
         self.layer = layer
         self.linear = linear
         self.activation = layer.activation
-        input = K.placeholder(shape = layer.output_shape)
+        input = K.placeholder(shape=layer.output_shape)
 
         output = self.activation(input)
         # According to the original paper, 
         # In forward pass and backward pass, do the same activation(relu)
         self.up_func = K.function(
-                [input, K.learning_phase()], output)
+            [input, K.learning_phase()], output)
         self.down_func = K.function(
-                [input, K.learning_phase()], output)
+            [input, K.learning_phase()], output)
 
     # Compute activation in forward pass
-    def up(self, data, learning_phase = 0):
+    def up(self, data, learning_phase=0):
         '''
         function to compute activation in forward pass
         # Arguments
@@ -296,7 +298,7 @@ class DActivation(object):
         return self.up_data
 
     # Compute activation in backward pass
-    def down(self, data, learning_phase = 0):
+    def down(self, data, learning_phase=0):
         '''
         function to compute activation in backward pass
         # Arguments
@@ -307,12 +309,13 @@ class DActivation(object):
         '''
         self.down_data = self.down_func([data, learning_phase])
         return self.down_data
-    
-    
+
+
 class DFlatten(object):
     '''
     A class to define forward and backward operation on Flatten
     '''
+
     def __init__(self, layer):
         '''
         # Arguments
@@ -323,10 +326,10 @@ class DFlatten(object):
         self.layer = layer
         self.shape = layer.input_shape[1:]
         self.up_func = K.function(
-                [layer.input, K.learning_phase()], layer.output)
+            [layer.input, K.learning_phase()], layer.output)
 
     # Flatten 2D input into 1D output
-    def up(self, data, learning_phase = 0):
+    def up(self, data, learning_phase=0):
         '''
         function to flatten input in forward pass
         # Arguments
@@ -339,7 +342,7 @@ class DFlatten(object):
         return self.up_data
 
     # Reshape 1D input into 2D output
-    def down(self, data, learning_phase = 0):
+    def down(self, data, learning_phase=0):
         '''
         function to unflatten input in backward pass
         # Arguments
@@ -353,10 +356,12 @@ class DFlatten(object):
         self.down_data = np.reshape(data, new_shape)
         return self.down_data
 
+
 class DInput(object):
     '''
     A class to define forward and backward operation on Input
     '''
+
     def __init__(self, layer):
         '''
         # Arguments
@@ -365,9 +370,9 @@ class DInput(object):
                    output_shape, weights)
         '''
         self.layer = layer
-    
+
     # input and output of Inputl layer are the same
-    def up(self, data, learning_phase = 0):
+    def up(self, data, learning_phase=0):
         '''
         function to operate input in forward pass, the input and output
         are the same
@@ -379,8 +384,8 @@ class DInput(object):
         '''
         self.up_data = data
         return self.up_data
-    
-    def down(self, data, learning_phase = 0):
+
+    def down(self, data, learning_phase=0):
         '''
         function to operate input in backward pass, the input and output
         are the same
@@ -392,7 +397,8 @@ class DInput(object):
         '''
         self.down_data = data
         return self.down_data
-    
+
+
 def visualize(model, data, layer_name, feature_to_visualize, visualize_mode):
     '''
     function to visualize feature
@@ -417,13 +423,13 @@ def visualize(model, data, layer_name, feature_to_visualize, visualize_mode):
         if isinstance(model.layers[i], Convolution2D):
             deconv_layers.append(DConvolution2D(model.layers[i]))
             deconv_layers.append(
-                    DActivation(model.layers[i]))
+                DActivation(model.layers[i]))
         elif isinstance(model.layers[i], MaxPooling2D):
             deconv_layers.append(DPooling(model.layers[i]))
         elif isinstance(model.layers[i], Dense):
             deconv_layers.append(DDense(model.layers[i]))
             deconv_layers.append(
-                    DActivation(model.layers[i]))
+                DActivation(model.layers[i]))
         elif isinstance(model.layers[i], Activation):
             deconv_layers.append(DActivation(model.alyers[i]))
         elif isinstance(model.layers[i], Flatten):
@@ -467,25 +473,26 @@ def visualize(model, data, layer_name, feature_to_visualize, visualize_mode):
         deconv_layers[i].down(deconv_layers[i + 1].down_data)
     deconv = deconv_layers[0].down_data
     deconv = deconv.squeeze()
-    
+
     return deconv
 
-    
+
 def argparser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('image', help = 'Path of image to visualize')
-    parser.add_argument('--layer_name', '-l', 
-            action = 'store', dest = 'layer_name', 
-            default = 'block5_conv3', help = 'Layer to visualize')
-    parser.add_argument('--feature', '-f', 
-            action = 'store', dest = 'feature', 
-            default = 0, type = int, help = 'Feature to visualize')
-    parser.add_argument('--mode', '-m', action = 'store', dest = 'mode', 
-            choices = ['max', 'all'], default = 'max', 
-            help = 'Visualize mode, \'max\' mode will pick the greatest \
+    parser.add_argument('image', help='Path of image to visualize')
+    parser.add_argument('--layer_name', '-l',
+                        action='store', dest='layer_name',
+                        default='block5_conv3', help='Layer to visualize')
+    parser.add_argument('--feature', '-f',
+                        action='store', dest='feature',
+                        default=0, type=int, help='Feature to visualize')
+    parser.add_argument('--mode', '-m', action='store', dest='mode',
+                        choices=['max', 'all'], default='max',
+                        help='Visualize mode, \'max\' mode will pick the greatest \
                     activation in the feature map and set others to zero, \
                     \'all\' mode will use all values in the feature map')
     return parser
+
 
 def main():
     parser = argparser()
@@ -495,7 +502,7 @@ def main():
     feature_to_visualize = args.feature
     visualize_mode = args.mode
 
-    model = vgg16.VGG16(weights = 'imagenet', include_top = True)
+    model = vgg16.VGG16(weights='imagenet', include_top=True)
     layer_dict = dict([(layer.name, layer) for layer in model.layers])
     if not layer_dict.has_key(layer_name):
         print('Wrong layer name')
@@ -508,10 +515,10 @@ def main():
     img_array = img_array[np.newaxis, :]
     img_array = img_array.astype(np.float)
     img_array = imagenet_utils.preprocess_input(img_array)
-    
-    deconv = visualize(model, img_array, 
-            layer_name, feature_to_visualize, visualize_mode)
-    
+
+    deconv = visualize(model, img_array,
+                       layer_name, feature_to_visualize, visualize_mode)
+
     # postprocess and save image
     deconv = np.transpose(deconv, (1, 2, 0))
     deconv = deconv - deconv.min()
@@ -519,7 +526,9 @@ def main():
     deconv = deconv[:, :, ::-1]
     uint8_deconv = (deconv * 255).astype(np.uint8)
     img = Image.fromarray(uint8_deconv, 'RGB')
-    img.save('results/{}_{}_{}.png'.format(layer_name, feature_to_visualize, visualize_mode))
+    img.save('results/{}_{}_{}.png'.format(layer_name, feature_to_visualize,
+                                           visualize_mode))
+
 
 if "__main__" == __name__:
     main()
