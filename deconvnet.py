@@ -12,6 +12,9 @@ import argparse
 import sys
 
 import keras.backend as K
+
+if K.backend() == 'tensorflow':
+    raise Exception('only works with theano')
 import numpy as np
 from PIL import Image
 from keras.layers import (
@@ -25,7 +28,39 @@ from keras.layers.convolutional import (
     MaxPooling2D)
 
 
-class DConvolution2D(object):
+class DLayer:
+
+    def __init__(self, layer):
+        self.layer = layer
+        self.up_func = None
+        self.down_func = None
+
+    def up(self, data, learning_phase=0):
+        """
+        function to compute activation in forward pass
+        # Arguments
+            data: Data to be operated in forward pass
+            learning_phase: learning_phase of Keras, 1 or 0
+        # Returns
+            Activation
+        """
+        self.up_data = self.up_func([data, learning_phase])
+        return self.up_data
+
+    def down(self, data, learning_phase=0):
+        """
+        function to compute activation in backward pass
+        # Arguments
+            data: Data to be operated in backward pass
+            learning_phase: learning_phase of Keras, 1 or 0
+        # Returns
+            Activation
+        """
+        self.down_data = self.down_func([data, learning_phase])
+        return self.down_data
+
+
+class DConvolution2D(DLayer):
     """
     A class to define forward and backward operation on Convolution2D
     """
@@ -37,33 +72,38 @@ class DConvolution2D(object):
                    will be used to initiate DConvolution2D(input_shape, 
                    output_shape, weights)
         """
-        self.layer = layer
+        super(DConvolution2D, self).__init__(layer)
 
         weights = layer.get_weights()
         W = weights[0]
         b = weights[1]
 
         # Set up_func for DConvolution2D
-        nb_up_filter = W.shape[0]
-        nb_up_row = W.shape[2]
-        nb_up_col = W.shape[3]
         input = Input(shape=layer.input_shape[1:])
+
         output = Convolution2D(
-            nb_filter=nb_up_filter,
-            nb_row=nb_up_row,
-            nb_col=nb_up_col,
-            border_mode='same',
+            nb_filter=layer.nb_filter,
+            nb_row=layer.nb_row,
+            nb_col=layer.nb_col,
+            border_mode=layer.border_mode,
             weights=[W, b]
         )(input)
         self.up_func = K.function([input, K.learning_phase()], output)
 
         # Flip W horizontally and vertically, 
         # and set down_func for DConvolution2D
-        W = np.transpose(W, (1, 0, 2, 3))
-        W = W[:, :, ::-1, ::-1]
-        nb_down_filter = W.shape[0]
-        nb_down_row = W.shape[2]
-        nb_down_col = W.shape[3]
+        if K.image_dim_ordering() == 'th':
+            W = np.transpose(W, (1, 0, 2, 3))
+            W = W[:, :, ::-1, ::-1]
+            nb_down_filter = W.shape[0]
+            nb_down_row = W.shape[2]
+            nb_down_col = W.shape[3]
+        else:
+            W = np.transpose(W, (0, 1, 3, 2))
+            W = W[::-1, ::-1, :, :]
+            nb_down_filter = W.shape[3]
+            nb_down_row = W.shape[0]
+            nb_down_col = W.shape[1]
         b = np.zeros(nb_down_filter)
         input = Input(shape=layer.output_shape[1:])
         output = Convolution2D(
@@ -75,32 +115,8 @@ class DConvolution2D(object):
         )(input)
         self.down_func = K.function([input, K.learning_phase()], output)
 
-    def up(self, data, learning_phase=0):
-        """
-        function to compute Convolution output in forward pass
-        # Arguments
-            data: Data to be operated in forward pass
-            learning_phase: learning_phase of Keras, 1 or 0
-        # Returns
-            Convolved result
-        """
-        self.up_data = self.up_func([data, learning_phase])
-        return self.up_data
 
-    def down(self, data, learning_phase=0):
-        """
-        function to compute Deconvolution output in backward pass
-        # Arguments
-            data: Data to be operated in backward pass
-            learning_phase: learning_phase of Keras, 1 or 0
-        # Returns
-            Deconvolved result
-        """
-        self.down_data = self.down_func([data, learning_phase])
-        return self.down_data
-
-
-class DDense(object):
+class DDense(DLayer):
     """
     A class to define forward and backward operation on Dense
     """
@@ -112,7 +128,7 @@ class DDense(object):
                    will be used to initiate DDense(input_shape, 
                    output_shape, weights)
         """
-        self.layer = layer
+        super(DDense, self).__init__(layer)
         weights = layer.get_weights()
         W = weights[0]
         b = weights[1]
@@ -135,33 +151,8 @@ class DDense(object):
             weights=flipped_weights)(input)
         self.down_func = K.function([input, K.learning_phase()], output)
 
-    def up(self, data, learning_phase=0):
-        """
-        function to compute dense output in forward pass
-        # Arguments
-            data: Data to be operated in forward pass
-            learning_phase: learning_phase of Keras, 1 or 0
-        # Returns
-            Result of dense layer
-        """
-        self.up_data = self.up_func([data, learning_phase])
-        return self.up_data
 
-    def down(self, data, learning_phase=0):
-        """
-        function to compute dense output in backward pass
-        # Arguments
-            data: Data to be operated in forward pass
-            learning_phase: learning_phase of Keras, 1 or 0
-        # Returns
-            Result of reverse dense layer
-        """
-        # data = data - self.bias
-        self.down_data = self.down_func([data, learning_phase])
-        return self.down_data
-
-
-class DPooling(object):
+class DPooling(DLayer):
     """
     A class to define forward and backward operation on Pooling
     """
@@ -173,7 +164,7 @@ class DPooling(object):
                    will be used to initiate DPooling(input_shape, 
                    output_shape, weights)
         """
-        self.layer = layer
+        super(DPooling, self).__init__(layer)
         self.poolsize = layer.pool_size
 
     def up(self, data, learning_phase=0):
@@ -257,7 +248,7 @@ class DPooling(object):
         return unpooled
 
 
-class DActivation(object):
+class DActivation(DLayer):
     """
     A class to define forward and backward operation on Activation
     """
@@ -269,7 +260,7 @@ class DActivation(object):
                    will be used to initiate DActivation(input_shape, 
                    output_shape, weights)
         """
-        self.layer = layer
+        super(DActivation, self).__init__(layer)
         self.linear = linear
         self.activation = layer.activation
         input = K.placeholder(shape=layer.output_shape)
@@ -282,34 +273,8 @@ class DActivation(object):
         self.down_func = K.function(
             [input, K.learning_phase()], output)
 
-    # Compute activation in forward pass
-    def up(self, data, learning_phase=0):
-        """
-        function to compute activation in forward pass
-        # Arguments
-            data: Data to be operated in forward pass
-            learning_phase: learning_phase of Keras, 1 or 0
-        # Returns
-            Activation
-        """
-        self.up_data = self.up_func([data, learning_phase])
-        return self.up_data
 
-    # Compute activation in backward pass
-    def down(self, data, learning_phase=0):
-        """
-        function to compute activation in backward pass
-        # Arguments
-            data: Data to be operated in backward pass
-            learning_phase: learning_phase of Keras, 1 or 0
-        # Returns
-            Activation
-        """
-        self.down_data = self.down_func([data, learning_phase])
-        return self.down_data
-
-
-class DFlatten(object):
+class DFlatten(DLayer):
     """
     A class to define forward and backward operation on Flatten
     """
@@ -321,25 +286,11 @@ class DFlatten(object):
                    will be used to initiate DFlatten(input_shape, 
                    output_shape, weights)
         """
-        self.layer = layer
+        super(DFlatten, self).__init__(layer)
         self.shape = layer.input_shape[1:]
         self.up_func = K.function(
             [layer.input, K.learning_phase()], layer.output)
 
-    # Flatten 2D input into 1D output
-    def up(self, data, learning_phase=0):
-        """
-        function to flatten input in forward pass
-        # Arguments
-            data: Data to be operated in forward pass
-            learning_phase: learning_phase of Keras, 1 or 0
-        # Returns
-            Flattened data
-        """
-        self.up_data = self.up_func([data, learning_phase])
-        return self.up_data
-
-    # Reshape 1D input into 2D output
     def down(self, data, learning_phase=0):
         """
         function to unflatten input in backward pass
@@ -355,21 +306,10 @@ class DFlatten(object):
         return self.down_data
 
 
-class DInput(object):
+class DInput(DLayer):
     """
     A class to define forward and backward operation on Input
     """
-
-    def __init__(self, layer):
-        """
-        # Arguments
-            layer: an instance of Input layer, whose configuration 
-                   will be used to initiate DInput(input_shape, 
-                   output_shape, weights)
-        """
-        self.layer = layer
-
-    # input and output of Inputl layer are the same
     def up(self, data, learning_phase=0):
         """
         function to operate input in forward pass, the input and output
@@ -505,7 +445,7 @@ def main():
     feature_to_visualize = args.feature
     visualize_mode = args.mode
 
-    model = vgg16.VGG16(weights='imagenet', include_top=True)
+    model = vgg16.VGG16(weights='imagenet', include_top=False)
     layer_dict = dict([(layer.name, layer) for layer in model.layers])
     if not layer_name in layer_dict:
         print('Wrong layer name')
@@ -514,7 +454,8 @@ def main():
     # Load data and preprocess
     img = Image.open(image_path)
     img_array = np.array(img)
-    img_array = np.transpose(img_array, (2, 0, 1))
+    if K.image_dim_ordering() == 'th':
+        img_array = np.transpose(img_array, (2, 0, 1))
     img_array = img_array[np.newaxis, :]
     img_array = img_array.astype(np.float)
     img_array = imagenet_utils.preprocess_input(img_array)
