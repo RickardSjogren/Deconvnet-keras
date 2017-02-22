@@ -7,14 +7,8 @@
 # Created Time: Sun 30 Oct 2016 09:52:15 PM CST
 # Description: Code for Deconvnet based on keras
 ###############################################
-
-import argparse
-import sys
-
 import keras.backend as K
 
-if K.backend() == 'tensorflow':
-    raise Exception('only works with theano')
 import numpy as np
 from PIL import Image
 from keras.layers import (
@@ -32,6 +26,8 @@ class DLayer:
 
     def __init__(self, layer):
         self.layer = layer
+        self.up_data = None
+        self.down_data = None
         self.up_func = None
         self.down_func = None
 
@@ -44,7 +40,8 @@ class DLayer:
         # Returns
             Activation
         """
-        self.up_data = self.up_func([data, learning_phase])
+        data = self.up_func([data, learning_phase])
+        self.up_data = data if K.backend() == 'theano' else data[0]
         return self.up_data
 
     def down(self, data, learning_phase=0):
@@ -56,7 +53,8 @@ class DLayer:
         # Returns
             Activation
         """
-        self.down_data = self.down_func([data, learning_phase])
+        data = self.down_func([data, learning_phase])
+        self.down_data = data if K.backend() == 'theano' else data[0]
         return self.down_data
 
 
@@ -88,7 +86,7 @@ class DConvolution2D(DLayer):
             border_mode=layer.border_mode,
             weights=[W, b]
         )(input)
-        self.up_func = K.function([input, K.learning_phase()], output)
+        self.up_func = _K_function([input, K.learning_phase()], output)
 
         # Flip W horizontally and vertically, 
         # and set down_func for DConvolution2D
@@ -113,7 +111,7 @@ class DConvolution2D(DLayer):
             border_mode='same',
             weights=[W, b]
         )(input)
-        self.down_func = K.function([input, K.learning_phase()], output)
+        self.down_func = _K_function([input, K.learning_phase()], output)
 
 
 class DDense(DLayer):
@@ -137,7 +135,7 @@ class DDense(DLayer):
         input = Input(shape=layer.input_shape[1:])
         output = Dense(output_dim=layer.output_shape[1],
                        weights=[W, b])(input)
-        self.up_func = K.function([input, K.learning_phase()], output)
+        self.up_func = _K_function([input, K.learning_phase()], output)
 
         # Transpose W and set down_func for DDense
         W = W.transpose()
@@ -149,7 +147,7 @@ class DDense(DLayer):
         output = Dense(
             output_dim=self.input_shape[1],
             weights=flipped_weights)(input)
-        self.down_func = K.function([input, K.learning_phase()], output)
+        self.down_func = _K_function([input, K.learning_phase()], output)
 
 
 class DPooling(DLayer):
@@ -203,31 +201,58 @@ class DPooling(DLayer):
             Pooled result and Switch
         """
         switch = np.zeros(input.shape)
-        out_shape = list(input.shape)
+
+        if K.image_dim_ordering() == 'th':
+            samples, dims, rows, cols = input.shape
+        else:
+            samples, rows, cols, dims = input.shape
+        
         row_poolsize = int(poolsize[0])
         col_poolsize = int(poolsize[1])
-        out_shape[2] = out_shape[2] // poolsize[0]
-        out_shape[3] = out_shape[3] // poolsize[1]
+        rows = rows // row_poolsize
+        cols = cols // col_poolsize
+        
+        if K.image_dim_ordering() == 'th':
+            out_shape = samples, dims, rows, cols
+        else:
+            out_shape = samples, rows, cols, dims
+        
         pooled = np.zeros(out_shape)
 
-        for sample in range(input.shape[0]):
-            for dim in range(input.shape[1]):
-                for row in range(out_shape[2]):
-                    for col in range(out_shape[3]):
-                        patch = input[sample,
-                                dim,
-                                row * row_poolsize: (row + 1) * row_poolsize,
-                                col * col_poolsize: (col + 1) * col_poolsize]
-                        max_value = patch.max()
-                        pooled[sample, dim, row, col] = max_value
+        for sample in range(samples):
+            for dim in range(dims):
+                for row in range(rows):
+                    for col in range(cols):
+                        if K.image_dim_ordering() == 'th':
+                            patch = input[sample,
+                                    dim,
+                                    row * row_poolsize: (row + 1) * row_poolsize,
+                                    col * col_poolsize: (col + 1) * col_poolsize]
+                            max_value = patch.max()
+                            pooled[sample, dim, row, col] = max_value
+                        else:
+                            patch = input[sample,
+                                    row * row_poolsize: (row + 1) * row_poolsize,
+                                    col * col_poolsize: (col + 1) * col_poolsize,
+                                    dim]
+                            max_value = patch.max()
+                            pooled[sample, row, col, dim] = max_value
+
                         max_col_index = patch.argmax(axis=1)
                         max_cols = patch.max(axis=1)
                         max_row = max_cols.argmax()
                         max_col = max_col_index[max_row]
-                        switch[sample,
-                               dim,
-                               row * row_poolsize + max_row,
-                               col * col_poolsize + max_col] = 1
+                        if K.image_dim_ordering() == 'th':
+                            switch[sample,
+                                   dim,
+                                   row * row_poolsize + max_row,
+                                   col * col_poolsize + max_col] = 1
+                        else:
+                            switch[sample,
+                                   row * row_poolsize + max_row,
+                                   col * col_poolsize + max_col, 
+                                   dim] = 1
+                            
         return [pooled, switch]
 
     # Compute unpooled output using pooled data and switch
@@ -241,9 +266,20 @@ class DPooling(DLayer):
         # Returns
             Unpooled result
         """
-        tile = np.ones((switch.shape[2] // input.shape[2],
-                        switch.shape[3] // input.shape[3]))
-        out = np.kron(input, tile)
+        if K.image_dim_ordering() == 'th':
+            row_i, col_i = 2, 3
+        else:
+            row_i, col_i = 1, 2
+
+        tile = np.ones((switch.shape[row_i] // input.shape[row_i],
+                        switch.shape[col_i] // input.shape[col_i]))
+
+        if K.image_dim_ordering() == 'th':
+            out = np.kron(input, tile)
+        else:
+            out = np.kron(np.transpose(input, (0, 3, 1, 2)), tile)
+            out = np.transpose(out, (0, 2, 3, 1))
+
         unpooled = out * switch
         return unpooled
 
@@ -268,9 +304,9 @@ class DActivation(DLayer):
         output = self.activation(input)
         # According to the original paper, 
         # In forward pass and backward pass, do the same activation(relu)
-        self.up_func = K.function(
+        self.up_func = _K_function(
             [input, K.learning_phase()], output)
-        self.down_func = K.function(
+        self.down_func = _K_function(
             [input, K.learning_phase()], output)
 
 
@@ -288,7 +324,7 @@ class DFlatten(DLayer):
         """
         super(DFlatten, self).__init__(layer)
         self.shape = layer.input_shape[1:]
-        self.up_func = K.function(
+        self.up_func = _K_function(
             [layer.input, K.learning_phase()], layer.output)
 
     def down(self, data, learning_phase=0):
@@ -335,6 +371,13 @@ class DInput(DLayer):
         """
         self.down_data = data
         return self.down_data
+    
+    
+def _K_function(inputs, out):
+    if K.backend() == 'theano' or isinstance(out, (list, tuple)):
+        return K.function(inputs, out)
+    else:
+        return K.function(inputs, [out])
 
 
 def visualize(model, data, layer_name, feature_to_visualize, visualize_mode):
@@ -416,16 +459,17 @@ def visualize(model, data, layer_name, feature_to_visualize, visualize_mode):
 
 
 def argparser():
+    import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('image', help='Path of image to visualize')
     parser.add_argument('--layer_name', '-l',
                         action='store', dest='layer_name',
-                        default='block5_conv3', help='Layer to visualize')
+                        default='block5_conv1', help='Layer to visualize')
     parser.add_argument('--feature', '-f',
                         action='store', dest='feature',
                         default=0, type=int, help='Feature to visualize')
     parser.add_argument('--mode', '-m', action='store', dest='mode',
-                        choices=['max', 'all'], default='max',
+                        choices=['max', 'all'], default='all',
                         help='Visualize mode, \'max\' mode will pick the greatest \
                     activation in the feature map and set others to zero, \
                     \'all\' mode will use all values in the feature map')
@@ -433,6 +477,7 @@ def argparser():
 
 
 def main():
+    import sys
     sys.path.insert(0,
                     r'C:\Users\risj0005\Documents\Kod\deep-learning-models-master')
     import vgg16
@@ -464,9 +509,11 @@ def main():
                        layer_name, feature_to_visualize, visualize_mode)
 
     # postprocess and save image
-    deconv = np.transpose(deconv, (1, 2, 0))
     deconv = deconv - deconv.min()
     deconv *= 1.0 / (deconv.max() + 1e-8)
+    if K.image_dim_ordering() == 'th':
+        deconv = np.transpose(deconv, (1, 2, 0))
+
     deconv = deconv[:, :, ::-1]
     uint8_deconv = (deconv * 255).astype(np.uint8)
     img = Image.fromarray(uint8_deconv, 'RGB')
