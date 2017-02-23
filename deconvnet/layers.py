@@ -211,18 +211,14 @@ class DPooling(DLayer):
                         if K.image_dim_ordering() == 'th':
                             patch = input[sample,
                                     dim,
-                                    row * row_poolsize: (
-                                                        row + 1) * row_poolsize,
-                                    col * col_poolsize: (
-                                                        col + 1) * col_poolsize]
+                                    row * row_poolsize: (row + 1) * row_poolsize,
+                                    col * col_poolsize: (col + 1) * col_poolsize]
                             max_value = patch.max()
                             pooled[sample, dim, row, col] = max_value
                         else:
                             patch = input[sample,
-                                    row * row_poolsize: (
-                                                        row + 1) * row_poolsize,
-                                    col * col_poolsize: (
-                                                        col + 1) * col_poolsize,
+                                    row * row_poolsize: (row + 1) * row_poolsize,
+                                    col * col_poolsize: (col + 1) * col_poolsize,
                                     dim]
                             max_value = patch.max()
                             pooled[sample, row, col, dim] = max_value
