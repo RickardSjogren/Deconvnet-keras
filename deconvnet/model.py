@@ -27,27 +27,33 @@ class DeconvNetModel:
 
     def __init__(self, model):
         self.layers = []
+        names = list()
 
         # Stack layers
-        for layer in model.layers:
+        for i, layer in enumerate(model.layers, start=1):
             if isinstance(layer, Convolution2D):
                 self.layers.append(layers.DConvolution2D(layer))
                 self.layers.append(layers.DActivation(layer))
+                names.extend([layer.name, layer.name + '_activation'])
             elif isinstance(layer, MaxPooling2D):
                 self.layers.append(layers.DPooling(layer))
+                names.append(layer.name)
             elif isinstance(layer, Dense):
                 self.layers.append(layers.DDense(layer))
                 self.layers.append(layers.DActivation(layer))
+                names.extend([layer.name, layer.name + '_activation'])
             elif isinstance(layer, Activation):
                 self.layers.append(layers.DActivation(layer))
+                names.extend('activation_{}'.format(i))
             elif isinstance(layer, Flatten):
                 self.layers.append(layers.DFlatten(layer))
+                layers.append(layer.name)
             elif isinstance(layer, InputLayer):
                 self.layers.append(layers.DInput(layer))
+                names.append(layer.name)
             else:
                 raise ValueError('Cannot handle this type of layer')
 
-        names = (layer.name for layer in model.layers)
         self.layers_by_name = collections.OrderedDict(zip(names, self.layers))
 
     def predict(self, data, layer=None):
@@ -162,3 +168,41 @@ class DeconvNetModel:
                 output[:, :, :, feature_map] = feature
 
         return self.deconvolve(output, layer)
+
+    def switches(self, return_type=None):
+        """ Return pooling layer switches.
+
+        Parameters
+        ----------
+        return_type : type, optional
+            Return switch-arrays as type `return_type`.
+
+        Returns
+        -------
+        dict[str, np.ndarray]
+            Layer-name: Switch-array mapping.
+        """
+        return_type = return_type if return_type is not None else float
+        switches = collections.OrderedDict()
+        for name, layer in self.layers_by_name.items():
+            try:
+                switches[name] = layer.switch.astype(return_type)
+            except AttributeError:
+                continue
+
+        return switches
+
+    def set_switches(self, switches):
+        """ Set pooling layer switches.
+
+        Parameters
+        ----------
+        switches : dict[str, np.ndarray]
+            Layer-name: Switch-array mapping.
+        """
+        if any(name not in self.layers_by_name for name in switches.keys()):
+            raise ValueError('name mismatch')
+
+        for name, switch in switches.items():
+            layer = self.layers_by_name[name]
+            layer.switch = switch
